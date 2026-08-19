@@ -7,8 +7,6 @@ node_modules/
 # Runtime output
 logs/
 
-# TLS session keys produced by --tls-keylog (regenerated per capture)
-docs/captures/keylog.txt
 
 # OS noise
 Thumbs.db
