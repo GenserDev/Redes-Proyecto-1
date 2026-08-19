@@ -7,6 +7,7 @@
  */
 
 import "dotenv/config";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -76,6 +77,41 @@ export const config = {
   /** Directory where per-session JSON Lines logs are written. */
   logDir: path.join(ROOT_DIR, "logs"),
 };
+
+/**
+ * Loads the MCP server definitions from mcp-servers.json.
+ *
+ * Paths inside the file are written with a `{{ROOT}}` placeholder so the
+ * configuration stays portable across machines; it is expanded here into the
+ * absolute path of this checkout.
+ *
+ * @returns {Array<object>} Server entries, or an empty list when the file is absent.
+ */
+export function loadServerConfigs() {
+  const file = path.join(ROOT_DIR, "mcp-servers.json");
+
+  if (!fs.existsSync(file)) return [];
+
+  const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  const servers = parsed.servers ?? [];
+
+  return servers.map((server) => ({
+    ...server,
+    args: (server.args ?? []).map(expandRoot),
+    cwd: server.cwd ? expandRoot(server.cwd) : undefined,
+    url: server.url ? expandRoot(server.url) : undefined,
+  }));
+}
+
+/**
+ * Replaces the `{{ROOT}}` placeholder with the repository path.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function expandRoot(value) {
+  return value.replaceAll("{{ROOT}}", ROOT_DIR);
+}
 
 /**
  * Returns the API key for the active provider, throwing a message that tells

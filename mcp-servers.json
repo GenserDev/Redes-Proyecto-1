@@ -1,0 +1,23 @@
+{
+  "servers": [
+    {
+      "name": "filesystem",
+      "type": "stdio",
+      "enabled": true,
+      "description": "Official Filesystem MCP server (Anthropic), installed as a project dependency and sandboxed to the workspace directory.",
+      "command": "node",
+      "args": [
+        "{{ROOT}}/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
+        "{{ROOT}}/workspace"
+      ]
+    },
+    {
+      "name": "git",
+      "type": "stdio",
+      "enabled": true,
+      "description": "Official Git MCP server (Anthropic). Install with: pip install mcp-server-git. Started without --repository so every tool takes an explicit repo_path and git_init can create new repositories.",
+      "command": "python",
+      "args": ["-m", "mcp_server_git"]
+    }
+  ]
+}
