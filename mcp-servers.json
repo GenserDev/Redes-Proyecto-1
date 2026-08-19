@@ -27,6 +27,13 @@
       "description": "Custom MCP server for this project: parcel carrier quoting, shipment creation and tracking. See servers/logistics/SPEC.md",
       "command": "node",
       "args": ["{{ROOT}}/servers/logistics/stdio-server.js"]
+    },
+    {
+      "name": "logistics-remote",
+      "type": "http",
+      "enabled": false,
+      "description": "The same logistics server deployed to Cloudflare Workers. Enable this one and disable 'logistics' to reach it over the network instead of over a pipe.",
+      "url": "https://logistics-mcp.genserdev.workers.dev/mcp"
     }
   ]
 }

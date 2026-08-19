@@ -9,6 +9,7 @@
 
 import { McpClient } from "./client.js";
 import { StdioTransport } from "./stdio.js";
+import { HttpTransport } from "./http.js";
 
 /** Separator between the server name and the tool name. */
 const NAMESPACE_SEPARATOR = "__";
@@ -180,6 +181,10 @@ function createTransport(serverConfig) {
       cwd: serverConfig.cwd,
       env: serverConfig.env,
     });
+  }
+
+  if (type === "http") {
+    return new HttpTransport({ name: serverConfig.name, url: serverConfig.url });
   }
 
   throw new Error(`Unsupported MCP transport "${type}"`);

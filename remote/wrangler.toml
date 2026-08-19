@@ -1,0 +1,18 @@
+# Cloudflare Workers deployment for the logistics MCP server.
+#
+#   npx wrangler login                 authenticate once
+#   npx wrangler deploy  -c remote/wrangler.toml    publish
+#   npx wrangler dev     -c remote/wrangler.toml    run locally over plain HTTP
+#
+# The free plan covers this comfortably and does not require a credit card.
+
+name = "logistics-mcp"
+main = "worker.js"
+compatibility_date = "2026-08-18"
+
+# The worker imports modules from ../src and ../servers, so the bundler is
+# pointed at the repository root rather than at this directory.
+base_dir = "../"
+
+[observability]
+enabled = true
