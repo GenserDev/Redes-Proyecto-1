@@ -21,6 +21,10 @@ const SYSTEM_PROMPT = [
   "with the server they belong to, for example filesystem__read_text_file.",
   "Use a tool whenever the answer depends on the real state of the system, and",
   "report what the tool returned rather than guessing.",
+  "If a tool reports an error, say so and explain it; never claim an operation",
+  "succeeded when the tool that performed it failed.",
+  "Paths given to the filesystem and git tools are relative to the workspace",
+  "directory those servers are configured with.",
   "Answer in the language the user writes in.",
   "Be concise and direct; use plain text, since the output is a terminal.",
 ].join(" ");
@@ -53,28 +57,42 @@ export class Agent {
     this.messages.push({ role: "user", content: text });
 
     const tools = this.manager ? this.manager.listTools() : [];
+    let lastReasoning = "";
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const reply = await chat({ messages: this.messages, tools });
 
       if (reply.toolCalls.length === 0) {
-        this.messages.push({ role: "assistant", content: reply.text });
-        this.trimHistory();
-        return reply.text;
+        if (reply.text.trim() !== "") {
+          this.messages.push({ role: "assistant", content: reply.text });
+          this.trimHistory();
+          return reply.text;
+        }
+
+        // A reasoning model can produce a turn that only thinks: no answer and
+        // no tool call. That is an unfinished turn, not a reply, so the request
+        // is simply made again rather than showing the user its notes.
+        lastReasoning = reply.reasoning || lastReasoning;
+        continue;
       }
 
       // The assistant turn that requested the tools has to stay in the history:
       // providers reject a tool result that does not follow its own request.
+      // `raw` carries the provider's original message so nothing is lost.
       this.messages.push({
         role: "assistant",
         content: reply.text,
         toolCalls: reply.toolCalls,
+        raw: reply.raw,
       });
 
       await this.runToolCalls(reply.toolCalls);
     }
 
-    const message = `Stopped after ${MAX_TOOL_ROUNDS} tool rounds without a final answer.`;
+    const message = lastReasoning
+      ? `Stopped after ${MAX_TOOL_ROUNDS} rounds without a final answer. The model was still working on: ${lastReasoning}`
+      : `Stopped after ${MAX_TOOL_ROUNDS} tool rounds without a final answer.`;
+
     this.messages.push({ role: "assistant", content: message });
     return message;
   }

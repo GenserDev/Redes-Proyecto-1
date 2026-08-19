@@ -74,14 +74,24 @@ async function chatWithGroq(apiKey, messages, tools) {
   );
 
   const message = data.choices?.[0]?.message ?? {};
+  const toolCalls = message.tool_calls ?? [];
 
   return {
     text: message.content ?? "",
-    toolCalls: (message.tool_calls ?? []).map((call) => ({
+    // Reasoning models put their chain of thought here. It is never shown to
+    // the user, but the agent uses its presence to tell a finished turn from
+    // one where the model thought without acting.
+    reasoning: message.reasoning ?? "",
+    toolCalls: toolCalls.map((call) => ({
       id: call.id,
       name: call.function.name,
       arguments: parseArguments(call.function.arguments),
     })),
+    // Reasoning models carry state in fields outside `content` (`reasoning`
+    // for the gpt-oss family). Rebuilding the message from our neutral shape
+    // would drop them and the model loses the thread mid-task, so the original
+    // is kept and echoed back verbatim on the next request.
+    raw: message,
   };
 }
 
@@ -92,6 +102,10 @@ async function chatWithGroq(apiKey, messages, tools) {
  * @returns {object}
  */
 function toGroqMessage(message) {
+  // An assistant turn that came from the provider is sent back untouched, so
+  // fields we do not model (reasoning, refusals) survive the round trip.
+  if (message.role === "assistant" && message.raw) return message.raw;
+
   if (message.role === "tool") {
     return {
       role: "tool",
@@ -167,6 +181,7 @@ async function chatWithAnthropic(apiKey, messages, tools) {
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join(""),
+    reasoning: "",
     toolCalls: blocks
       .filter((block) => block.type === "tool_use")
       .map((block) => ({
@@ -174,6 +189,9 @@ async function chatWithAnthropic(apiKey, messages, tools) {
         name: block.name,
         arguments: block.input ?? {},
       })),
+    // Same reasoning as on the Groq side: the original content blocks are
+    // preserved so nothing is lost when the turn is replayed.
+    raw: blocks,
   };
 }
 
@@ -204,6 +222,11 @@ function toAnthropicMessages(messages) {
       continue;
     }
 
+    if (message.role === "assistant" && message.raw) {
+      result.push({ role: "assistant", content: message.raw });
+      continue;
+    }
+
     if (message.role === "assistant" && message.toolCalls?.length) {
       const content = [];
       if (message.content) content.push({ type: "text", text: message.content });
@@ -229,9 +252,16 @@ function toAnthropicMessages(messages) {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+/** How many times a rate-limited request is retried before giving up. */
+const MAX_RATE_LIMIT_RETRIES = 3;
+
 /**
  * POSTs a JSON body and returns the decoded response, turning HTTP errors into
  * exceptions that carry the message reported by the provider.
+ *
+ * Free tiers are metered per minute, and a conversation that carries a large
+ * tool catalogue hits that ceiling easily, so HTTP 429 is retried after the
+ * delay the provider asks for instead of failing the user's message.
  *
  * @param {string} url
  * @param {Record<string, string>} headers
@@ -239,23 +269,56 @@ function toAnthropicMessages(messages) {
  * @returns {Promise<object>}
  */
 async function postJson(url, headers, body) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
 
-  const text = await response.text();
+    const text = await response.text();
 
-  if (!response.ok) {
-    throw new Error(`LLM API ${response.status}: ${text.slice(0, 400)}`);
+    if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+      await sleep(retryDelayMs(response, text));
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`LLM API ${response.status}: ${text.slice(0, 400)}`);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`LLM API returned invalid JSON: ${text.slice(0, 200)}`);
+    }
   }
+}
 
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`LLM API returned invalid JSON: ${text.slice(0, 200)}`);
-  }
+/**
+ * Works out how long to wait before retrying a rate-limited request, from the
+ * Retry-After header or from the delay quoted in the error message.
+ *
+ * @param {Response} response
+ * @param {string} text
+ * @returns {number} Milliseconds to wait.
+ */
+function retryDelayMs(response, text) {
+  const header = Number(response.headers.get("retry-after"));
+  if (Number.isFinite(header) && header > 0) return header * 1000;
+
+  const quoted = text.match(/try again in ([\d.]+)s/i);
+  if (quoted) return Math.ceil(Number(quoted[1]) * 1000) + 500;
+
+  return 5000;
+}
+
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
