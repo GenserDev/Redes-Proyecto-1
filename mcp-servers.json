@@ -19,6 +19,14 @@
       "command": "python",
       "args": ["-m", "mcp_server_git"],
       "cwd": "{{ROOT}}/workspace"
+    },
+    {
+      "name": "logistics",
+      "type": "stdio",
+      "enabled": true,
+      "description": "Custom MCP server for this project: parcel carrier quoting, shipment creation and tracking. See servers/logistics/SPEC.md",
+      "command": "node",
+      "args": ["{{ROOT}}/servers/logistics/stdio-server.js"]
     }
   ]
 }
