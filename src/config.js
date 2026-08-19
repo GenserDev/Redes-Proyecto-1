@@ -44,11 +44,14 @@ function envBool(name, fallback) {
   return value.toLowerCase() === "true" || value === "1";
 }
 
-const provider = env("LLM_PROVIDER", "groq").toLowerCase();
+/** LLM backends this project can talk to. */
+const PROVIDERS = ["groq", "anthropic", "gemini"];
 
-if (provider !== "groq" && provider !== "anthropic") {
+const provider = env("LLM_PROVIDER", "gemini").toLowerCase();
+
+if (!PROVIDERS.includes(provider)) {
   throw new Error(
-    `LLM_PROVIDER must be "groq" or "anthropic", received "${provider}".`,
+    `LLM_PROVIDER must be one of ${PROVIDERS.join(", ")}; received "${provider}".`,
   );
 }
 
@@ -66,6 +69,12 @@ export const config = {
     apiKey: env("ANTHROPIC_API_KEY"),
     model: env("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
     baseUrl: "https://api.anthropic.com/v1",
+  },
+
+  gemini: {
+    apiKey: env("GEMINI_API_KEY"),
+    model: env("GEMINI_MODEL", "gemini-3.7-flash"),
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
   },
 
   /** Conversation messages retained before the oldest ones are dropped. */
@@ -122,10 +131,8 @@ function expandRoot(value) {
 export function requireApiKey() {
   const key = config[config.provider].apiKey;
   if (!key) {
-    const variable =
-      config.provider === "groq" ? "GROQ_API_KEY" : "ANTHROPIC_API_KEY";
     throw new Error(
-      `Missing ${variable}. Copy .env.example to .env and fill it in.`,
+      `Missing ${config.provider.toUpperCase()}_API_KEY. Copy .env.example to .env and fill it in.`,
     );
   }
   return key;

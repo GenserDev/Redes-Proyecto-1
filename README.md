@@ -29,7 +29,9 @@ message is built, framed, sent and parsed by the code in `src/mcp/` and
 
 - **Node.js 20 or newer** (developed on v24). Check with `node --version`.
 - **Python 3.10 or newer**, only for the official Git MCP server.
-- An API key for one of the supported providers:
+- An API key for one of the three supported providers:
+  - **Google Gemini** — <https://aistudio.google.com/apikey>. Free tier, no
+    credit card. This is the default.
   - **Groq** — <https://console.groq.com/keys>. Free tier, no credit card.
   - **Anthropic** — <https://console.anthropic.com>. Ships with USD 5 in free
     credits.
@@ -63,12 +65,13 @@ cp .env.example .env
 Then edit `.env`:
 
 ```
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_your_key_here
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_key_here
 ```
 
-To use Anthropic instead, set `LLM_PROVIDER=anthropic` and fill in
-`ANTHROPIC_API_KEY`. Nothing else changes.
+Switching provider is one line: set `LLM_PROVIDER` to `groq` or `anthropic`
+and fill in the matching key. Nothing else changes — `src/llm.js` reduces all
+three APIs to the same internal message shape.
 
 ## Usage
 
@@ -200,18 +203,26 @@ the result is fed back into the conversation.
 > during setup with `git init workspace/demo-repo`. Everything after that —
 > writing files, staging and committing — is driven by the chatbot.
 
-## Notes on the free tier
+## Notes on the providers
 
-Groq's free tier meters tokens per minute (8000 at the time of writing). The
-tool catalogue is sent with every request, so two things keep the chatbot
-inside that budget:
+The three backends differ in more than their URLs, and `src/llm.js` absorbs
+those differences so the agent never sees them:
 
-- Tool descriptions are trimmed to their first sentence before being sent to
-  the model. The full text stays available in `/tools`.
-- A rate-limited request (HTTP 429) is retried after the delay the API asks
-  for, instead of failing the user's message.
-
-If you switch to Anthropic, neither applies and both are harmless.
+- **Message replay.** Every provider attaches state to an assistant turn that
+  our neutral message shape does not model — `reasoning` on Groq's gpt-oss
+  models, `thoughtSignature` on Gemini 3. Rebuilding the turn from our own
+  fields drops it, and the model then stalls mid-task or the API rejects the
+  request outright. Assistant turns are therefore stored as they arrived and
+  replayed verbatim.
+- **Schema strictness.** Gemini validates function declarations against a
+  subset of JSON Schema and rejects the whole request over a stray `$schema`
+  or `default`, both of which the official MCP servers emit. Schemas are
+  rewritten to that subset before being sent.
+- **Quotas.** Groq's free tier meters 8000 tokens per minute, and the tool
+  catalogue travels with every request. Tool descriptions are trimmed to their
+  first sentence before being sent to the model (the full text stays in
+  `/tools`), and HTTP 429 and 503 are retried after the delay the provider
+  asks for.
 
 ## Configuration
 
@@ -219,7 +230,9 @@ All settings live in `.env`; see `.env.example` for the full list.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `groq` | `groq` or `anthropic` |
+| `LLM_PROVIDER` | `gemini` | `gemini`, `groq` or `anthropic` |
+| `GEMINI_API_KEY` | — | Required when the provider is Gemini |
+| `GEMINI_MODEL` | `gemini-3.7-flash` | Any Gemini model with function calling |
 | `GROQ_API_KEY` | — | Required when the provider is Groq |
 | `GROQ_MODEL` | `openai/gpt-oss-120b` | Any Groq model with tool support |
 | `ANTHROPIC_API_KEY` | — | Required when the provider is Anthropic |

@@ -28,9 +28,15 @@ import { config, requireApiKey } from "./config.js";
  */
 export async function chat({ messages, tools = [] }) {
   const apiKey = requireApiKey();
-  return config.provider === "groq"
-    ? chatWithGroq(apiKey, messages, tools)
-    : chatWithAnthropic(apiKey, messages, tools);
+
+  switch (config.provider) {
+    case "groq":
+      return chatWithGroq(apiKey, messages, tools);
+    case "anthropic":
+      return chatWithAnthropic(apiKey, messages, tools);
+    default:
+      return chatWithGemini(apiKey, messages, tools);
+  }
 }
 
 /** @returns {string} Human-readable description of the active model. */
@@ -249,11 +255,208 @@ function toAnthropicMessages(messages) {
 }
 
 // ---------------------------------------------------------------------------
+// Gemini (Google AI Studio)
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {string} apiKey
+ * @param {Array<object>} messages
+ * @param {Array<object>} tools
+ * @returns {Promise<{text: string, reasoning: string, toolCalls: Array<object>}>}
+ */
+async function chatWithGemini(apiKey, messages, tools) {
+  // Like Anthropic, Gemini takes the system prompt outside the conversation.
+  const systemPrompt = messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content)
+    .join("\n\n");
+
+  const body = {
+    contents: toGeminiContents(
+      messages.filter((message) => message.role !== "system"),
+    ),
+  };
+
+  if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
+
+  if (tools.length > 0) {
+    body.tools = [
+      {
+        functionDeclarations: tools.map((tool) => {
+          const declaration = {
+            name: tool.name,
+            description: tool.description,
+          };
+          // Gemini rejects a parameter object with no properties, so a
+          // no-argument tool is declared without a schema at all.
+          const parameters = toGeminiSchema(tool.inputSchema);
+          if (parameters && Object.keys(parameters.properties ?? {}).length > 0) {
+            declaration.parameters = parameters;
+          }
+          return declaration;
+        }),
+      },
+    ];
+  }
+
+  const data = await postJson(
+    `${config.gemini.baseUrl}/models/${config.gemini.model}:generateContent`,
+    { "x-goog-api-key": apiKey },
+    body,
+  );
+
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+
+  return {
+    text: parts
+      .filter((part) => typeof part.text === "string")
+      .map((part) => part.text)
+      .join(""),
+    reasoning: "",
+    toolCalls: parts
+      .filter((part) => part.functionCall)
+      .map((part, index) => ({
+        // Gemini matches a result to its call by function name rather than by
+        // id, so an id is synthesized purely to satisfy our neutral shape.
+        id: `${part.functionCall.name}-${index}`,
+        name: part.functionCall.name,
+        arguments: part.functionCall.args ?? {},
+      })),
+    // Gemini 3 attaches a `thoughtSignature` to each functionCall part and
+    // rejects the next request if it does not come back. Keeping the original
+    // parts and replaying them verbatim satisfies that without this code
+    // having to know the field exists.
+    raw: parts,
+  };
+}
+
+/**
+ * Converts neutral messages into Gemini `contents`. Gemini names the assistant
+ * role "model", and tool results travel as `functionResponse` parts inside a
+ * user turn.
+ *
+ * @param {Array<object>} messages
+ * @returns {Array<object>}
+ */
+function toGeminiContents(messages) {
+  const contents = [];
+
+  for (const message of messages) {
+    if (message.role === "tool") {
+      const part = {
+        functionResponse: {
+          name: message.name,
+          response: { result: message.content },
+        },
+      };
+      // Results that follow one another belong to the same turn.
+      const previous = contents[contents.length - 1];
+      if (previous?.role === "user" && previous.parts[0]?.functionResponse) {
+        previous.parts.push(part);
+      } else {
+        contents.push({ role: "user", parts: [part] });
+      }
+      continue;
+    }
+
+    if (message.role === "assistant") {
+      // A turn that came from Gemini is replayed exactly as it arrived, so the
+      // thought signatures attached to its function calls survive.
+      const parts = message.raw ?? buildGeminiAssistantParts(message);
+
+      // An assistant turn with neither text nor calls would be rejected.
+      if (parts.length > 0) contents.push({ role: "model", parts });
+      continue;
+    }
+
+    contents.push({ role: "user", parts: [{ text: message.content }] });
+  }
+
+  return contents;
+}
+
+/**
+ * Rebuilds an assistant turn from the neutral shape, for messages that did not
+ * come from Gemini (a history restored from elsewhere, or another provider).
+ *
+ * @param {object} message
+ * @returns {Array<object>}
+ */
+function buildGeminiAssistantParts(message) {
+  const parts = [];
+
+  if (message.content) parts.push({ text: message.content });
+
+  for (const call of message.toolCalls ?? []) {
+    parts.push({ functionCall: { name: call.name, args: call.arguments ?? {} } });
+  }
+
+  return parts;
+}
+
+/** JSON Schema keywords Gemini accepts; everything else is dropped. */
+const GEMINI_SCHEMA_KEYS = [
+  "type",
+  "description",
+  "enum",
+  "properties",
+  "required",
+  "items",
+  "nullable",
+];
+
+/**
+ * Reduces a JSON Schema to the subset Gemini accepts.
+ *
+ * The official MCP servers ship schemas with `$schema`, `default`, `minItems`
+ * and similar keywords. Gemini validates function declarations strictly and
+ * rejects the whole request when it meets one, so the schema is rebuilt from
+ * the keywords it understands.
+ *
+ * @param {object} schema
+ * @returns {object|null}
+ */
+function toGeminiSchema(schema) {
+  if (schema === null || typeof schema !== "object") return null;
+
+  const result = {};
+
+  for (const key of GEMINI_SCHEMA_KEYS) {
+    if (!(key in schema)) continue;
+
+    if (key === "properties") {
+      result.properties = {};
+      for (const [name, value] of Object.entries(schema.properties)) {
+        const converted = toGeminiSchema(value);
+        if (converted !== null) result.properties[name] = converted;
+      }
+      continue;
+    }
+
+    if (key === "items") {
+      const converted = toGeminiSchema(schema.items);
+      if (converted !== null) result.items = converted;
+      continue;
+    }
+
+    result[key] = schema[key];
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/** How many times a rate-limited request is retried before giving up. */
-const MAX_RATE_LIMIT_RETRIES = 3;
+/** How many times a retryable request is retried before giving up. */
+const MAX_RETRIES = 3;
+
+/**
+ * Statuses worth retrying: 429 is a rate limit, 503 is a provider that is
+ * momentarily overloaded. Both clear on their own after a short wait.
+ */
+const RETRYABLE_STATUSES = [429, 503];
 
 /**
  * POSTs a JSON body and returns the decoded response, turning HTTP errors into
@@ -278,8 +481,8 @@ async function postJson(url, headers, body) {
 
     const text = await response.text();
 
-    if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
-      await sleep(retryDelayMs(response, text));
+    if (RETRYABLE_STATUSES.includes(response.status) && attempt < MAX_RETRIES) {
+      await sleep(retryDelayMs(response, text, attempt));
       continue;
     }
 
@@ -296,21 +499,22 @@ async function postJson(url, headers, body) {
 }
 
 /**
- * Works out how long to wait before retrying a rate-limited request, from the
- * Retry-After header or from the delay quoted in the error message.
+ * Works out how long to wait before retrying, preferring the delay the
+ * provider asks for and otherwise backing off exponentially.
  *
  * @param {Response} response
  * @param {string} text
+ * @param {number} attempt Zero-based retry number.
  * @returns {number} Milliseconds to wait.
  */
-function retryDelayMs(response, text) {
+function retryDelayMs(response, text, attempt) {
   const header = Number(response.headers.get("retry-after"));
   if (Number.isFinite(header) && header > 0) return header * 1000;
 
   const quoted = text.match(/try again in ([\d.]+)s/i);
   if (quoted) return Math.ceil(Number(quoted[1]) * 1000) + 500;
 
-  return 5000;
+  return 2000 * 2 ** attempt;
 }
 
 /**
