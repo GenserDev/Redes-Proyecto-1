@@ -59,6 +59,8 @@ export class McpClient {
     this.tools = [];
 
     this.transport.onMessage = (line) => this.receive(line);
+    this.transport.onClose = (reason) => this.failPending(reason);
+
     this.transport.onStderr = (line) => {
       // Server diagnostics are not protocol messages, but they are the only
       // clue available when a server fails to start, so they are recorded too.
@@ -244,13 +246,22 @@ export class McpClient {
     entry.resolve(message.result);
   }
 
-  /** Closes the connection and fails anything still waiting. */
-  close() {
+  /**
+   * Rejects every request still waiting for a response.
+   *
+   * @param {string} reason
+   */
+  failPending(reason) {
     for (const [, entry] of this.pending) {
       clearTimeout(entry.timer);
-      entry.reject(new Error(`MCP server "${this.name}" closed`));
+      entry.reject(new Error(`MCP server "${this.name}": ${reason}`));
     }
     this.pending.clear();
+  }
+
+  /** Closes the connection and fails anything still waiting. */
+  close() {
+    this.failPending("connection closed");
     this.transport.close();
   }
 }

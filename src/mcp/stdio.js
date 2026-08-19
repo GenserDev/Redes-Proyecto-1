@@ -41,27 +41,23 @@ export class StdioTransport {
 
     /** @type {(line: string) => void} Receives the child's stderr output. */
     this.onStderr = () => {};
+
+    /** @type {(reason: string) => void} Called when the child process goes away. */
+    this.onClose = () => {};
   }
 
   /**
    * Launches the child process and starts reading messages from its stdout.
    */
   start() {
-    // On Windows the launchers we depend on (npx, uvx) are .cmd/.bat scripts,
-    // which spawn cannot execute directly; going through the shell resolves
-    // them the same way an interactive prompt would.
-    const useShell = process.platform === "win32";
-
-    this.child = spawn(
-      this.command,
-      useShell ? this.args.map(quoteForShell) : this.args,
-      {
-        cwd: this.cwd,
-        env: { ...process.env, ...this.env },
-        shell: useShell,
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
+    // The child is launched without a shell: every server in mcp-servers.json
+    // is started through a real executable (node, uvx, python), which keeps
+    // arguments free of quoting rules and avoids shell injection entirely.
+    this.child = spawn(this.command, this.args, {
+      cwd: this.cwd,
+      env: { ...process.env, ...this.env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
 
     this.child.stdout.setEncoding("utf8");
     this.child.stdout.on("data", (chunk) => this.consume(chunk));
@@ -75,6 +71,13 @@ export class StdioTransport {
 
     this.child.on("error", (error) => {
       this.onStderr(`failed to start "${this.command}": ${error.message}`);
+      this.onClose(`could not start "${this.command}": ${error.message}`);
+    });
+
+    // A server that exits before answering would otherwise leave the client
+    // waiting for the full request timeout, so the exit is reported at once.
+    this.child.on("exit", (code) => {
+      this.onClose(`"${this.command}" exited with code ${code}`);
     });
   }
 
@@ -124,15 +127,4 @@ export class StdioTransport {
   describe() {
     return `${this.command} ${this.args.join(" ")}`.trim();
   }
-}
-
-/**
- * Quotes an argument that is about to be handed to a shell, so paths
- * containing spaces survive.
- *
- * @param {string} argument
- * @returns {string}
- */
-function quoteForShell(argument) {
-  return /[\s"]/.test(argument) ? `"${argument.replace(/"/g, '\\"')}"` : argument;
 }
