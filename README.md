@@ -111,7 +111,7 @@ npx wrangler deploy -c remote/wrangler.toml
 
 | Document | Contents |
 |----------|----------|
-| [docs/Documentacion-Redes-P1.docx](docs/Documentacion-Redes-P1.docx) | Project report |
+| [docs/Documentacion-Redes-P1.pdf](docs/Documentacion-Redes-P1.pdf) | Project report |
 | [docs/WIRESHARK.md](docs/WIRESHARK.md) | Packet capture analysis |
 | [servers/logistics/SPEC.md](servers/logistics/SPEC.md) | Custom MCP server specification |
 
