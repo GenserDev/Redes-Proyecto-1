@@ -20,7 +20,7 @@ message is built, framed, sent and parsed by the code in `src/mcp/` and
 | 2 | Context kept across a session | Done |
 | 3 | Log of every MCP request and response | Done |
 | 4 | Official local MCP servers (Filesystem, Git) | Done |
-| 5 | Custom local MCP server (logistics) | Pending |
+| 5 | Custom local MCP server (logistics) | Done |
 | 6 | Same MCP server running remotely | Pending |
 | 7 | Wireshark analysis of the remote traffic | Pending |
 | 8-10 | Written report | Pending |
@@ -113,10 +113,59 @@ same tool name without colliding.
 |--------|-----------|---------|-------|
 | `filesystem` | stdio | `node node_modules/@modelcontextprotocol/server-filesystem` | 14 |
 | `git` | stdio | `python -m mcp_server_git` | 12 |
+| `logistics` | stdio | `node servers/logistics/stdio-server.js` | 4 |
 
-Both are the official Anthropic servers. The Filesystem server is sandboxed to
-`workspace/`, so the model cannot touch the rest of the machine. Set
-`"enabled": false` on an entry to skip it.
+The first two are the official Anthropic servers; the third is written for
+this project. The Filesystem server is sandboxed to `workspace/`, so the model
+cannot touch the rest of the machine. Set `"enabled": false` on an entry to
+skip it.
+
+## The logistics MCP server
+
+The custom server (requirement #5) models the customer-service backend of a
+Guatemalan parcel carrier. Full specification in
+[servers/logistics/SPEC.md](servers/logistics/SPEC.md).
+
+| Tool | What it does |
+|------|--------------|
+| `quote_shipment` | Price and transit time between two cities |
+| `create_shipment` | Registers a shipment, returns a tracking number |
+| `track_shipment` | Current status plus the full scan history |
+| `list_shipments` | A customer's shipments, optionally filtered by status |
+
+Both the server and its client speak JSON-RPC 2.0 through the same
+`src/mcp/jsonrpc.js` module — one builds the messages, the other answers them.
+The domain logic in `servers/logistics/tools.js` has no idea a transport
+exists, which is what makes the remote deployment in the next stage a thin
+shell over the same file.
+
+Errors are split the way the specification intends: an unknown method is a
+JSON-RPC error (`-32601`), while an unknown tracking number is a *successful*
+response carrying `isError: true`, because that is an answer the model should
+read and explain rather than a protocol failure.
+
+```
+you > Donde esta mi paquete GT-4471?
+
+  tool logistics__track_shipment {"tracking_number":"GT-4471"}
+       ok Tracking GT-4471 customer: Ferreteria El Tornillo route: Guatemala...
+bot > El paquete GT-4471 esta en transito. El 15 de agosto a las 07:05 UTC
+      salio del centro de clasificacion ESC-01 hacia Quetzaltenango. Entrega
+      estimada para el 19 de agosto de 2026.
+
+you > Cuanto me costaria mandar 8 kilos de Guatemala City a Flores en express?
+
+  tool logistics__quote_shipment {"origin":"Guatemala City","destination":"Flores",
+                                  "service_level":"express","weight_kg":8}
+       ok Quote Guatemala City -> Flores ... price: GTQ 225.60
+bot > El costo seria GTQ 225.60, con 3 dias habiles de transito.
+```
+
+You can also drive it by hand, without the chatbot:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node servers/logistics/stdio-server.js
+```
 
 ### Example scenario
 
@@ -206,7 +255,10 @@ src/
     stdio.js    Transport for local servers (child process, one message per line)
     client.js   Protocol logic: handshake, tools/list, tools/call
     manager.js  One client per server, merged tool catalogue
-servers/        Custom MCP servers
+servers/logistics/
+  tools.js        Domain logic and tool schemas, transport-agnostic
+  stdio-server.js MCP server over stdio (requirement #5)
+  SPEC.md         Full server specification
 remote/         Cloud deployment of the custom MCP server
 workspace/      Sandbox the Filesystem and Git servers are limited to
 docs/           Report and Wireshark analysis
