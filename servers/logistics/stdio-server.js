@@ -2,18 +2,10 @@
 /**
  * Logistics MCP server, stdio transport (project requirement #5).
  *
- * This is the server side of the protocol, written by hand on the same
- * JSON-RPC 2.0 module the client uses. It reads newline-delimited JSON from
- * stdin and writes newline-delimited JSON to stdout; stdout carries protocol
- * messages only, so anything diagnostic goes to stderr.
- *
- * Methods implemented:
- *
- *   initialize                 handshake, reports capabilities and identity
- *   notifications/initialized  handshake acknowledgement, no response
- *   ping                       liveness check, empty result
- *   tools/list                 the tool catalogue
- *   tools/call                 run one tool
+ * The transport shell: it reads newline-delimited JSON from stdin and writes
+ * newline-delimited JSON to stdout, handing each parsed request to the shared
+ * router in protocol.js. stdout carries protocol messages only, so anything
+ * diagnostic goes to stderr.
  *
  * Run it directly to try it out:
  *
@@ -24,15 +16,12 @@ import readline from "node:readline";
 import {
   ErrorCode,
   buildError,
-  buildResponse,
   isNotification,
   isRequest,
   parseMessage,
 } from "../../src/mcp/jsonrpc.js";
-import { SERVER_INFO, callTool, listTools } from "./tools.js";
-
-/** Protocol revision this server implements. */
-const PROTOCOL_VERSION = "2025-06-18";
+import { handleRequest } from "./protocol.js";
+import { SERVER_INFO } from "./tools.js";
 
 /**
  * Writes one message to stdout, terminated by the newline that frames it.
@@ -41,48 +30,6 @@ const PROTOCOL_VERSION = "2025-06-18";
  */
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
-}
-
-/**
- * Routes one request to its handler.
- *
- * @param {object} message A JSON-RPC request.
- * @returns {object} The response to send back.
- */
-function handleRequest(message) {
-  const { id, method, params } = message;
-
-  switch (method) {
-    case "initialize":
-      return buildResponse(id, {
-        protocolVersion: PROTOCOL_VERSION,
-        // Only tools are offered: no resources, prompts or sampling.
-        capabilities: { tools: {} },
-        serverInfo: SERVER_INFO,
-      });
-
-    case "ping":
-      return buildResponse(id, {});
-
-    case "tools/list":
-      return buildResponse(id, { tools: listTools() });
-
-    case "tools/call": {
-      if (typeof params?.name !== "string") {
-        return buildError(
-          id,
-          ErrorCode.INVALID_PARAMS,
-          "tools/call requires a string 'name' parameter",
-        );
-      }
-      // A tool that fails for domain reasons still answers with a result;
-      // `isError` inside it tells the model what happened.
-      return buildResponse(id, callTool(params.name, params.arguments));
-    }
-
-    default:
-      return buildError(id, ErrorCode.METHOD_NOT_FOUND, `Unknown method: ${method}`);
-  }
 }
 
 /**
