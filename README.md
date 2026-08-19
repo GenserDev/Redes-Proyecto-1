@@ -22,8 +22,16 @@ message is built, framed, sent and parsed by the code in `src/mcp/` and
 | 4 | Official local MCP servers (Filesystem, Git) | Done |
 | 5 | Custom local MCP server (logistics) | Done |
 | 6 | Same MCP server running remotely | Done |
-| 7 | Wireshark analysis of the remote traffic | Pending |
-| 8-10 | Written report | Pending |
+| 7 | Wireshark analysis of the remote traffic | Done |
+| 8-10 | Written report | Done |
+
+## Documents
+
+| Document | Contents |
+|----------|----------|
+| [docs/REPORT.md](docs/REPORT.md) | Server specification, layer analysis, difficulties, lessons learned, conclusions |
+| [docs/WIRESHARK.md](docs/WIRESHARK.md) | Packet capture analysis: JSON-RPC classification and the four layers |
+| [servers/logistics/SPEC.md](servers/logistics/SPEC.md) | Full specification of the custom MCP server |
 
 ## Requirements
 
@@ -380,6 +388,50 @@ client -> server   {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
 Over stdio, each message is a single line of JSON on the child process's
 stdin/stdout. `client.js` never refers to a transport directly, which is what
 lets the same class drive a remote server later in the project.
+
+
+## Verifying every requirement
+
+Each item can be checked independently.
+
+**#1 and #2 — LLM and session context.** Ask two related questions:
+
+```
+you > Quien fue Alan Turing?
+you > En que fecha nacio?
+```
+
+The second is answered without repeating the name, because the whole
+conversation is replayed on every request.
+
+**#3 — MCP traffic log.** Run `/log` at any point, or `/log on` to watch
+messages as they happen. Every session also writes `logs/session-<ts>.jsonl`.
+
+**#4 — Official servers.** `/servers` lists them; `/tools` lists their 26 tools.
+The scenario in [Example scenario](#example-scenario) exercises both.
+
+**#5 — Custom server, locally.** Ask `Donde esta mi paquete GT-4471?`, or drive
+it by hand:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node servers/logistics/stdio-server.js
+```
+
+**#6 — The same server, remotely.**
+
+```bash
+curl https://logistics-mcp.mcp-chatbot.workers.dev/health
+```
+
+Then flip `enabled` between `logistics` and `logistics-remote` in
+`mcp-servers.json` and ask the same question. Same answer, `transport: http`.
+
+**#7 and #9 — Packet capture.** Open `docs/captures/mcp-remote-tls.pcapng` in
+Wireshark with `docs/captures/keylog.txt` configured as the TLS key log, or read
+[docs/WIRESHARK.md](docs/WIRESHARK.md). `docs/captures/mcp-local-plaintext.pcapng`
+shows the same session unencrypted.
+
+**#8 and #10 — Report.** [docs/REPORT.md](docs/REPORT.md).
 
 ## License
 
