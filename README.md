@@ -122,18 +122,25 @@ Both are the official Anthropic servers. The Filesystem server is sandboxed to
 
 With `/log on` you can watch the JSON-RPC traffic while the model works:
 
-```
-you > Create a README.md in workspace/demo-repo describing this project,
-      then stage it and commit it with the message "docs: add readme"
+This is a real transcript, trimmed only in width:
 
-  tool filesystem__write_file {"path":"...demo-repo/README.md","content":"..."}
-       ok Successfully wrote to ...
-  tool git__git_add {"repo_path":"...demo-repo","files":["README.md"]}
-       ok Files staged successfully
-  tool git__git_commit {"repo_path":"...demo-repo","message":"docs: add readme"}
-       ok Changes committed successfully with hash 4f2c1ab
-bot > Done: the README is written, staged and committed as 4f2c1ab.
 ```
+you > En el repositorio demo-repo, crea un archivo README.md que describa un
+      proyecto de chatbot MCP. Luego agregalo al staging y haz un commit con
+      el mensaje 'docs: add readme'.
+
+  tool filesystem__write_file {"content":"# MCP Chatbot Demo\n\nEste proyecto..."}
+       ok Successfully wrote to demo-repo/README.md
+  tool git__git_add {"files":["README.md"],"repo_path":"demo-repo"}
+       ok Files staged successfully
+  tool git__git_commit {"message":"docs: add readme","repo_path":"demo-repo"}
+       ok Changes committed successfully with hash 2f063921cd74d70d...
+bot > Archivo README.md creado, anadido al staging y commit realizado con el
+      mensaje `docs: add readme`.
+```
+
+That session produced 18 log entries: 7 requests, 7 responses, 2 notifications
+and 2 server diagnostics.
 
 The model never touches the filesystem or Git itself. It asks for a tool by
 name, the chatbot forwards the call as a JSON-RPC `tools/call` over stdio, and
@@ -144,6 +151,19 @@ the result is fed back into the conversation.
 > during setup with `git init workspace/demo-repo`. Everything after that —
 > writing files, staging and committing — is driven by the chatbot.
 
+## Notes on the free tier
+
+Groq's free tier meters tokens per minute (8000 at the time of writing). The
+tool catalogue is sent with every request, so two things keep the chatbot
+inside that budget:
+
+- Tool descriptions are trimmed to their first sentence before being sent to
+  the model. The full text stays available in `/tools`.
+- A rate-limited request (HTTP 429) is retried after the delay the API asks
+  for, instead of failing the user's message.
+
+If you switch to Anthropic, neither applies and both are harmless.
+
 ## Configuration
 
 All settings live in `.env`; see `.env.example` for the full list.
@@ -152,7 +172,7 @@ All settings live in `.env`; see `.env.example` for the full list.
 |----------|---------|-------------|
 | `LLM_PROVIDER` | `groq` | `groq` or `anthropic` |
 | `GROQ_API_KEY` | — | Required when the provider is Groq |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq model with tool support |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Any Groq model with tool support |
 | `ANTHROPIC_API_KEY` | — | Required when the provider is Anthropic |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-5` | Anthropic model id |
 | `MAX_HISTORY_MESSAGES` | `40` | Messages kept before the oldest are dropped |
