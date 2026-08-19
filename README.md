@@ -1,13 +1,10 @@
-# MCP Chatbot
+# MCP Chatbot - Redes, Proyecto 1.
 
 Terminal chatbot that acts as an **MCP host**: it talks to an LLM through its
 HTTP API and connects to Model Context Protocol servers to extend what the
 model can do.
 
-Universidad del Valle de Guatemala — CC3067 Redes, Proyecto 1.
-
-The MCP protocol is implemented **by hand** on JSON-RPC 2.0. No MCP SDK or
-framework is used.
+The MCP protocol is JSON-RPC 2.0. No MCP SDK or framework is used.
 
 ## Technologies
 
@@ -75,7 +72,7 @@ Every JSON-RPC message exchanged with an MCP server is written to
 
 ## MCP servers
 
-Declared in `mcp-servers.json`. Set `"enabled": false` to skip one.
+Declared in `mcp-servers.json`
 
 | Server | Transport | Tools |
 |--------|-----------|-------|
@@ -94,8 +91,6 @@ https://logistics-mcp.mcp-chatbot.workers.dev
 To use it instead of the local one, swap `enabled` between the two entries and
 restart.
 
-Running the custom server standalone:
-
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node servers/logistics/stdio-server.js
 ```
@@ -111,7 +106,7 @@ npx wrangler deploy -c remote/wrangler.toml
 
 | Document | Contents |
 |----------|----------|
-| [docs/Documentacion-Redes-P1.pdf](docs/Documentacion-Redes-P1.pdf) | Project report |
+| [docs/Documentacion-Redes-P1.pdf](docs/Documentacion-Redes-P1.pdf) | Project Presentation Report |
 | [docs/WIRESHARK.md](docs/WIRESHARK.md) | Packet capture analysis |
 | [servers/logistics/SPEC.md](servers/logistics/SPEC.md) | Custom MCP server specification |
 
@@ -124,7 +119,3 @@ remote/         Cloudflare Workers deployment of that same server
 workspace/      Sandbox the Filesystem and Git servers are limited to
 docs/           Report, capture analysis and packet captures
 ```
-
-## License
-
-MIT.
