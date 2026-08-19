@@ -123,6 +123,38 @@ this project. The Filesystem server is sandboxed to `workspace/`, so the model
 cannot touch the rest of the machine. Set `"enabled": false` on an entry to
 skip it.
 
+### Example scenario
+
+With `/log on` you can watch the JSON-RPC traffic while the model works.
+This is a real transcript, trimmed only in width:
+
+```
+you > En el repositorio demo-repo, crea un archivo README.md que describa un
+      proyecto de chatbot MCP. Luego agregalo al staging y haz un commit con
+      el mensaje 'docs: add readme'.
+
+  tool filesystem__write_file {"content":"# MCP Chatbot Demo\n\nEste proyecto..."}
+       ok Successfully wrote to demo-repo/README.md
+  tool git__git_add {"files":["README.md"],"repo_path":"demo-repo"}
+       ok Files staged successfully
+  tool git__git_commit {"message":"docs: add readme","repo_path":"demo-repo"}
+       ok Changes committed successfully with hash 2f063921cd74d70d...
+bot > Archivo README.md creado, anadido al staging y commit realizado con el
+      mensaje `docs: add readme`.
+```
+
+That session produced 18 log entries: 7 requests, 7 responses, 2 notifications
+and 2 server diagnostics.
+
+The model never touches the filesystem or Git itself. It asks for a tool by
+name, the chatbot forwards the call as a JSON-RPC `tools/call` over stdio, and
+the result is fed back into the conversation.
+
+> **Note on repository creation.** The official Git MCP server exposes no
+> `git_init` tool in any published version, so the repository is created once
+> during setup with `git init workspace/demo-repo`. Everything after that —
+> writing files, staging and committing — is driven by the chatbot.
+
 ## The logistics MCP server
 
 The custom server (requirement #5) models the customer-service backend of a
@@ -169,39 +201,6 @@ You can also drive it by hand, without the chatbot:
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node servers/logistics/stdio-server.js
 ```
-
-### Example scenario
-
-With `/log on` you can watch the JSON-RPC traffic while the model works:
-
-This is a real transcript, trimmed only in width:
-
-```
-you > En el repositorio demo-repo, crea un archivo README.md que describa un
-      proyecto de chatbot MCP. Luego agregalo al staging y haz un commit con
-      el mensaje 'docs: add readme'.
-
-  tool filesystem__write_file {"content":"# MCP Chatbot Demo\n\nEste proyecto..."}
-       ok Successfully wrote to demo-repo/README.md
-  tool git__git_add {"files":["README.md"],"repo_path":"demo-repo"}
-       ok Files staged successfully
-  tool git__git_commit {"message":"docs: add readme","repo_path":"demo-repo"}
-       ok Changes committed successfully with hash 2f063921cd74d70d...
-bot > Archivo README.md creado, anadido al staging y commit realizado con el
-      mensaje `docs: add readme`.
-```
-
-That session produced 18 log entries: 7 requests, 7 responses, 2 notifications
-and 2 server diagnostics.
-
-The model never touches the filesystem or Git itself. It asks for a tool by
-name, the chatbot forwards the call as a JSON-RPC `tools/call` over stdio, and
-the result is fed back into the conversation.
-
-> **Note on repository creation.** The official Git MCP server exposes no
-> `git_init` tool in any published version, so the repository is created once
-> during setup with `git init workspace/demo-repo`. Everything after that —
-> writing files, staging and committing — is driven by the chatbot.
 
 ## Notes on the providers
 
