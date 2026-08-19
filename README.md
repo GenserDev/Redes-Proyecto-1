@@ -21,7 +21,7 @@ message is built, framed, sent and parsed by the code in `src/mcp/` and
 | 3 | Log of every MCP request and response | Done |
 | 4 | Official local MCP servers (Filesystem, Git) | Done |
 | 5 | Custom local MCP server (logistics) | Done |
-| 6 | Same MCP server running remotely | Pending |
+| 6 | Same MCP server running remotely | Built, awaiting deploy |
 | 7 | Wireshark analysis of the remote traffic | Pending |
 | 8-10 | Written report | Pending |
 
@@ -117,6 +117,7 @@ same tool name without colliding.
 | `filesystem` | stdio | `node node_modules/@modelcontextprotocol/server-filesystem` | 14 |
 | `git` | stdio | `python -m mcp_server_git` | 12 |
 | `logistics` | stdio | `node servers/logistics/stdio-server.js` | 4 |
+| `logistics-remote` | http | `POST https://<subdomain>.workers.dev/mcp` | 4 |
 
 The first two are the official Anthropic servers; the third is written for
 this project. The Filesystem server is sandboxed to `workspace/`, so the model
@@ -202,6 +203,68 @@ You can also drive it by hand, without the chatbot:
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node servers/logistics/stdio-server.js
 ```
 
+## The same server, running remotely
+
+Requirement #6 asks for the custom server to run in the cloud and be used by
+the chatbot exactly as the local one is. It is deployed to **Cloudflare
+Workers**, whose free plan needs no credit card.
+
+The point of the exercise is what *did not* have to change. `src/mcp/client.js`
+— the handshake, the id correlation, `tools/list`, `tools/call` — is untouched
+between the two. Only the transport differs:
+
+| | Local | Remote |
+|---|-------|--------|
+| Transport | `src/mcp/stdio.js` | `src/mcp/http.js` |
+| Carrier | Child process pipe | HTTP POST |
+| Framing | One JSON message per line | One JSON message per request body |
+| Shell | `servers/logistics/stdio-server.js` | `remote/worker.js` |
+| Router | `servers/logistics/protocol.js` | the same file |
+| Domain | `servers/logistics/tools.js` | the same file |
+
+Both shells are around 80 lines and contain no protocol knowledge: they frame
+messages and hand them to the shared router.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/mcp` | One JSON-RPC message per request; the reply is the response |
+| `GET` | `/health` | Liveness probe, readable from a browser |
+
+A notification is answered with HTTP `202` and an empty body, since the
+protocol says notifications get no reply. Protocol failures come back as
+JSON-RPC errors with HTTP `200`, so the client only ever parses one kind of
+failure.
+
+### Deploying
+
+```bash
+npx wrangler login
+npx wrangler deploy -c remote/wrangler.toml
+```
+
+Wrangler prints the public URL. Put it in the `logistics-remote` entry of
+`mcp-servers.json`, then flip which server is active:
+
+```json
+{ "name": "logistics",        "enabled": false },
+{ "name": "logistics-remote", "enabled": true  }
+```
+
+Restart the chatbot and ask the same questions. The answers are identical and
+`/servers` reports `transport: http`.
+
+### Running it locally
+
+For development, and for the plain-text Wireshark capture in the next stage,
+the same worker runs on localhost over unencrypted HTTP:
+
+```bash
+npx wrangler dev -c remote/wrangler.toml
+curl http://127.0.0.1:8787/health
+```
+
 ## Notes on the providers
 
 The three backends differ in more than their URLs, and `src/llm.js` absorbs
@@ -257,23 +320,27 @@ requirement #7 asks for.
 
 ```
 src/
-  index.js      Terminal UI and entry point
-  config.js     Environment loading and validation
-  logger.js     MCP traffic log (requirement #3)
-  llm.js        Provider layer: Groq and Anthropic over plain fetch
-  agent.js      Conversation history and tool-calling loop
+  index.js          Terminal UI and entry point
+  config.js         Environment and server configuration
+  logger.js         MCP traffic log (requirement #3)
+  llm.js            Provider layer: Gemini, Groq and Anthropic over plain fetch
+  agent.js          Conversation history and tool-calling loop
   mcp/
-    jsonrpc.js  JSON-RPC 2.0 messages: build, parse, validate
-    stdio.js    Transport for local servers (child process, one message per line)
-    client.js   Protocol logic: handshake, tools/list, tools/call
-    manager.js  One client per server, merged tool catalogue
+    jsonrpc.js      JSON-RPC 2.0 messages: build, parse, validate
+    client.js       Protocol logic: handshake, tools/list, tools/call
+    stdio.js        Transport for local servers (one message per line)
+    http.js         Transport for remote servers (one message per POST)
+    manager.js      One client per server, merged tool catalogue
 servers/logistics/
-  tools.js        Domain logic and tool schemas, transport-agnostic
-  stdio-server.js MCP server over stdio (requirement #5)
-  SPEC.md         Full server specification
-remote/         Cloud deployment of the custom MCP server
-workspace/      Sandbox the Filesystem and Git servers are limited to
-docs/           Report and Wireshark analysis
+  tools.js          Domain logic and tool schemas, transport-agnostic
+  protocol.js       MCP method routing, shared by both transports
+  stdio-server.js   Local server over stdio (requirement #5)
+  SPEC.md           Full server specification
+remote/
+  worker.js         Remote server over HTTP (requirement #6)
+  wrangler.toml     Cloudflare Workers deployment
+workspace/          Sandbox the Filesystem and Git servers are limited to
+docs/               Report and Wireshark analysis
 ```
 
 ### How the protocol is implemented

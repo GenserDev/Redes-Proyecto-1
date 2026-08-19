@@ -13,13 +13,13 @@ The protocol is implemented by hand on JSON-RPC 2.0. No MCP SDK is used.
 
 ## Transports
 
-The domain logic lives in `tools.js` and knows nothing about transports. Two
-thin shells expose it:
+The domain logic lives in `tools.js` and the method routing in `protocol.js`;
+neither knows anything about transports. Two thin shells expose them:
 
 | Transport | Entry point | How it is addressed |
 |-----------|-------------|---------------------|
 | stdio | `servers/logistics/stdio-server.js` | Child process; one JSON message per line on stdin/stdout |
-| HTTP | `remote/worker.js` | `POST /mcp` with a JSON-RPC body (added in the next stage) |
+| HTTP | `remote/worker.js` | `POST /mcp` with a JSON-RPC body |
 
 ## Lifecycle
 
