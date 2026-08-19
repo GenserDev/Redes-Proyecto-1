@@ -17,7 +17,10 @@
       "enabled": true,
       "description": "Official Git MCP server (Anthropic). Install with: pip install mcp-server-git. Started without --repository so every tool takes an explicit repo_path and git_init can create new repositories.",
       "command": "python",
-      "args": ["-m", "mcp_server_git"],
+      "args": [
+        "-m",
+        "mcp_server_git"
+      ],
       "cwd": "{{ROOT}}/workspace"
     },
     {
@@ -26,14 +29,16 @@
       "enabled": true,
       "description": "Custom MCP server for this project: parcel carrier quoting, shipment creation and tracking. See servers/logistics/SPEC.md",
       "command": "node",
-      "args": ["{{ROOT}}/servers/logistics/stdio-server.js"]
+      "args": [
+        "{{ROOT}}/servers/logistics/stdio-server.js"
+      ]
     },
     {
       "name": "logistics-remote",
       "type": "http",
       "enabled": false,
       "description": "The same logistics server deployed to Cloudflare Workers. Enable this one and disable 'logistics' to reach it over the network instead of over a pipe.",
-      "url": "https://logistics-mcp.genserdev.workers.dev/mcp"
+      "url": "https://logistics-mcp.mcp-chatbot.workers.dev/mcp"
     }
   ]
 }

@@ -21,7 +21,7 @@ message is built, framed, sent and parsed by the code in `src/mcp/` and
 | 3 | Log of every MCP request and response | Done |
 | 4 | Official local MCP servers (Filesystem, Git) | Done |
 | 5 | Custom local MCP server (logistics) | Done |
-| 6 | Same MCP server running remotely | Built, awaiting deploy |
+| 6 | Same MCP server running remotely | Done |
 | 7 | Wireshark analysis of the remote traffic | Pending |
 | 8-10 | Written report | Pending |
 
@@ -117,7 +117,7 @@ same tool name without colliding.
 | `filesystem` | stdio | `node node_modules/@modelcontextprotocol/server-filesystem` | 14 |
 | `git` | stdio | `python -m mcp_server_git` | 12 |
 | `logistics` | stdio | `node servers/logistics/stdio-server.js` | 4 |
-| `logistics-remote` | http | `POST https://<subdomain>.workers.dev/mcp` | 4 |
+| `logistics-remote` | http | `POST https://logistics-mcp.mcp-chatbot.workers.dev/mcp` | 4 |
 
 The first two are the official Anthropic servers; the third is written for
 this project. The Filesystem server is sandboxed to `workspace/`, so the model
@@ -244,8 +244,14 @@ npx wrangler login
 npx wrangler deploy -c remote/wrangler.toml
 ```
 
-Wrangler prints the public URL. Put it in the `logistics-remote` entry of
-`mcp-servers.json`, then flip which server is active:
+Wrangler prints the public URL. This deployment lives at:
+
+```
+https://logistics-mcp.mcp-chatbot.workers.dev
+```
+
+Put it in the `logistics-remote` entry of `mcp-servers.json`, then flip which
+server is active:
 
 ```json
 { "name": "logistics",        "enabled": false },
@@ -253,7 +259,23 @@ Wrangler prints the public URL. Put it in the `logistics-remote` entry of
 ```
 
 Restart the chatbot and ask the same questions. The answers are identical and
-`/servers` reports `transport: http`.
+`/servers` reports the remote endpoint:
+
+```
+you > /servers
+  logistics-remote connected
+    transport: http   tools: 4
+    server:    logistics-mcp 1.0.0
+    target:    https://logistics-mcp.mcp-chatbot.workers.dev/mcp
+
+you > Donde esta mi paquete GT-4471?
+  tool logistics-remote__track_shipment {"tracking_number":"GT-4471"}
+       ok Tracking GT-4471 customer: Ferreteria El Tornillo route: Guatemala...
+bot > Tu paquete GT-4471 esta actualmente en transito...
+```
+
+The tool name is the only visible difference, and that comes from the server's
+name in `mcp-servers.json`, not from the transport.
 
 ### Running it locally
 
