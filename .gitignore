@@ -13,3 +13,7 @@ docs/captures/keylog.txt
 # OS noise
 Thumbs.db
 .DS_Store
+
+# Sandbox for the Filesystem and Git MCP servers
+workspace/*
+!workspace/README.md
