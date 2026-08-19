@@ -17,7 +17,8 @@
       "enabled": true,
       "description": "Official Git MCP server (Anthropic). Install with: pip install mcp-server-git. Started without --repository so every tool takes an explicit repo_path and git_init can create new repositories.",
       "command": "python",
-      "args": ["-m", "mcp_server_git"]
+      "args": ["-m", "mcp_server_git"],
+      "cwd": "{{ROOT}}/workspace"
     }
   ]
 }
