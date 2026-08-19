@@ -17,3 +17,6 @@ Thumbs.db
 # Sandbox for the Filesystem and Git MCP servers
 workspace/*
 !workspace/README.md
+
+# Wrangler build artifacts
+.wrangler/
