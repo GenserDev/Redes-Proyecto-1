@@ -1,45 +1,25 @@
-/**
- * Connection manager: keeps one MCP client per configured server and presents
- * their tools to the model as a single catalogue.
- *
- * Two servers may well expose a tool with the same name, so every tool is
- * published as `<server>__<tool>`. The prefix is stripped again before the
- * call is forwarded, which means the server never sees our naming scheme.
- */
+// One MCP client per configured server, presenting their tools to the model as
+// a single catalogue.
 
 import { McpClient } from "./client.js";
 import { StdioTransport } from "./stdio.js";
 import { HttpTransport } from "./http.js";
 
-/** Separator between the server name and the tool name. */
 const NAMESPACE_SEPARATOR = "__";
-
-/** Providers reject function names longer than this. */
 const MAX_TOOL_NAME_LENGTH = 64;
+const MAX_DESCRIPTION_LENGTH = 180;
 
 export class McpManager {
-  /**
-   * @param {Array<object>} serverConfigs Entries from mcp-servers.json.
-   */
   constructor(serverConfigs) {
     this.serverConfigs = serverConfigs.filter((entry) => entry.enabled !== false);
 
-    /** @type {Map<string, McpClient>} Connected clients, keyed by server name. */
     this.clients = new Map();
-
-    /** @type {Array<object>} Namespaced tools, in the shape the LLM layer wants. */
     this.catalogue = [];
-
-    /** @type {Array<{name: string, error: string}>} Servers that failed to start. */
     this.failures = [];
   }
 
-  /**
-   * Connects to every configured server. A server that fails is reported but
-   * does not prevent the others from being used.
-   *
-   * @returns {Promise<void>}
-   */
+  // A server that fails is reported but does not prevent the others from
+  // being used.
   async connectAll() {
     for (const serverConfig of this.serverConfigs) {
       try {
@@ -50,12 +30,6 @@ export class McpManager {
     }
   }
 
-  /**
-   * Connects to a single server and adds its tools to the catalogue.
-   *
-   * @param {object} serverConfig
-   * @returns {Promise<void>}
-   */
   async connectOne(serverConfig) {
     const transport = createTransport(serverConfig);
     const client = new McpClient({ name: serverConfig.name, transport });
@@ -83,9 +57,6 @@ export class McpManager {
     }
   }
 
-  /**
-   * @returns {Array<object>} Tools in the shape the LLM layer expects.
-   */
   listTools() {
     return this.catalogue.map(({ name, description, inputSchema }) => ({
       name,
@@ -94,14 +65,6 @@ export class McpManager {
     }));
   }
 
-  /**
-   * Runs a namespaced tool and reduces the MCP result to plain text, which is
-   * what gets fed back into the conversation.
-   *
-   * @param {string} namespacedName
-   * @param {object} args
-   * @returns {Promise<{text: string, isError: boolean}>}
-   */
   async callTool(namespacedName, args) {
     const entry = this.catalogue.find((tool) => tool.name === namespacedName);
 
@@ -124,9 +87,6 @@ export class McpManager {
     }
   }
 
-  /**
-   * @returns {Array<object>} One status row per server, for the /servers command.
-   */
   status() {
     const rows = [];
 
@@ -155,7 +115,6 @@ export class McpManager {
     return rows;
   }
 
-  /** Shuts every server down. */
   close() {
     for (const [, client] of this.clients) {
       client.close();
@@ -164,12 +123,6 @@ export class McpManager {
   }
 }
 
-/**
- * Builds the transport a server configuration asks for.
- *
- * @param {object} serverConfig
- * @returns {object}
- */
 function createTransport(serverConfig) {
   const type = serverConfig.type ?? "stdio";
 
@@ -190,54 +143,32 @@ function createTransport(serverConfig) {
   throw new Error(`Unsupported MCP transport "${type}"`);
 }
 
-/**
- * Combines a server name and a tool name into a single identifier that
- * providers accept: letters, digits, underscore and hyphen only.
- *
- * @param {string} serverName
- * @param {string} toolName
- * @returns {string}
- */
+// Two servers may expose a tool with the same name, so tools are published as
+// <server>__<tool>. Providers only accept letters, digits, underscore and
+// hyphen in a function name.
 function namespaceToolName(serverName, toolName) {
   const raw = `${serverName}${NAMESPACE_SEPARATOR}${toolName}`;
   return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, MAX_TOOL_NAME_LENGTH);
 }
 
-/** Characters of tool description sent to the model. */
-const MAX_DESCRIPTION_LENGTH = 180;
-
-/**
- * Shortens a tool description before it is sent to the model.
- *
- * The whole catalogue travels with every request, and the official servers
- * ship descriptions several sentences long: keeping them in full costs around
- * 2300 tokens per call, which exhausts a free-tier per-minute quota after a
- * handful of turns. The first sentence carries the information the model
- * actually needs to pick a tool.
- *
- * @param {string} description
- * @returns {string}
- */
+// The whole catalogue travels with every request, and the official servers ship
+// descriptions several sentences long: keeping them in full costs around 2300
+// tokens per call, which exhausts a free-tier per-minute quota after a handful
+// of turns.
 function shortenDescription(description) {
   const firstParagraph = description.split("\n")[0].trim();
 
   if (firstParagraph.length <= MAX_DESCRIPTION_LENGTH) return firstParagraph;
 
-  // Prefer cutting at a sentence boundary so the text stays readable.
   const sentenceEnd = firstParagraph.lastIndexOf(". ", MAX_DESCRIPTION_LENGTH);
   return sentenceEnd > 60
     ? firstParagraph.slice(0, sentenceEnd + 1)
     : `${firstParagraph.slice(0, MAX_DESCRIPTION_LENGTH)}...`;
 }
 
-/**
- * Reduces an MCP tool result to text. Results are a list of content blocks;
- * text blocks are concatenated and anything else is described so the model
- * knows something was returned that it cannot read.
- *
- * @param {object} result
- * @returns {string}
- */
+// An MCP result is a list of content blocks. Non-text blocks are described
+// rather than dropped, so the model knows something came back that it cannot
+// read.
 function extractText(result) {
   const blocks = result?.content;
 

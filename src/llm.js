@@ -1,31 +1,14 @@
-/**
- * LLM access layer (project requirement #1).
- *
- * Talks to the model provider over plain HTTP with `fetch` -- no vendor SDK is
- * involved. Two providers are supported and both are reduced to the same
- * neutral message shape so the rest of the program never branches on which one
- * is active:
- *
- *   { role: "system",    content: string }
- *   { role: "user",      content: string }
- *   { role: "assistant", content: string, toolCalls?: ToolCall[] }
- *   { role: "tool",      toolCallId: string, name: string, content: string }
- *
- * where ToolCall is { id, name, arguments }, with `arguments` already parsed
- * into an object. Groq speaks the OpenAI wire format; Anthropic uses content
- * blocks.
- */
+// LLM access layer (requirement #1). Talks to the provider over plain fetch --
+// no vendor SDK. All three providers are reduced to the same neutral shape so
+// the rest of the program never branches on which one is active:
+//
+//   { role: "system",    content }
+//   { role: "user",      content }
+//   { role: "assistant", content, toolCalls?, raw? }
+//   { role: "tool",      toolCallId, name, content }
 
 import { config, requireApiKey } from "./config.js";
 
-/**
- * Sends a conversation to the active provider and returns the reply.
- *
- * @param {object} params
- * @param {Array<object>} params.messages Conversation in the neutral shape.
- * @param {Array<object>} [params.tools]  Tool catalogue: { name, description, inputSchema }.
- * @returns {Promise<{text: string, toolCalls: Array<object>}>}
- */
 export async function chat({ messages, tools = [] }) {
   const apiKey = requireApiKey();
 
@@ -39,7 +22,6 @@ export async function chat({ messages, tools = [] }) {
   }
 }
 
-/** @returns {string} Human-readable description of the active model. */
 export function describeModel() {
   const { provider } = config;
   return `${provider}/${config[provider].model}`;
@@ -49,12 +31,6 @@ export function describeModel() {
 // Groq (OpenAI-compatible wire format)
 // ---------------------------------------------------------------------------
 
-/**
- * @param {string} apiKey
- * @param {Array<object>} messages
- * @param {Array<object>} tools
- * @returns {Promise<{text: string, toolCalls: Array<object>}>}
- */
 async function chatWithGroq(apiKey, messages, tools) {
   const body = {
     model: config.groq.model,
@@ -84,32 +60,24 @@ async function chatWithGroq(apiKey, messages, tools) {
 
   return {
     text: message.content ?? "",
-    // Reasoning models put their chain of thought here. It is never shown to
-    // the user, but the agent uses its presence to tell a finished turn from
-    // one where the model thought without acting.
+    // Never shown to the user, but the agent uses its presence to tell a
+    // finished turn from one where the model thought without acting.
     reasoning: message.reasoning ?? "",
     toolCalls: toolCalls.map((call) => ({
       id: call.id,
       name: call.function.name,
       arguments: parseArguments(call.function.arguments),
     })),
-    // Reasoning models carry state in fields outside `content` (`reasoning`
-    // for the gpt-oss family). Rebuilding the message from our neutral shape
-    // would drop them and the model loses the thread mid-task, so the original
-    // is kept and echoed back verbatim on the next request.
+    // Reasoning models carry state in fields outside `content`. Rebuilding the
+    // message from our neutral shape would drop them and the model loses the
+    // thread mid-task, so the original is kept and echoed back verbatim.
     raw: message,
   };
 }
 
-/**
- * Converts one neutral message into the OpenAI/Groq shape.
- *
- * @param {object} message
- * @returns {object}
- */
 function toGroqMessage(message) {
   // An assistant turn that came from the provider is sent back untouched, so
-  // fields we do not model (reasoning, refusals) survive the round trip.
+  // fields we do not model survive the round trip.
   if (message.role === "assistant" && message.raw) return message.raw;
 
   if (message.role === "tool") {
@@ -142,12 +110,6 @@ function toGroqMessage(message) {
 // Anthropic (content-block format)
 // ---------------------------------------------------------------------------
 
-/**
- * @param {string} apiKey
- * @param {Array<object>} messages
- * @param {Array<object>} tools
- * @returns {Promise<{text: string, toolCalls: Array<object>}>}
- */
 async function chatWithAnthropic(apiKey, messages, tools) {
   // Anthropic takes the system prompt as a top-level field rather than as a
   // message, so it is pulled out of the conversation here.
@@ -195,18 +157,10 @@ async function chatWithAnthropic(apiKey, messages, tools) {
         name: block.name,
         arguments: block.input ?? {},
       })),
-    // Same reasoning as on the Groq side: the original content blocks are
-    // preserved so nothing is lost when the turn is replayed.
     raw: blocks,
   };
 }
 
-/**
- * Converts neutral messages into Anthropic content blocks.
- *
- * @param {Array<object>} messages
- * @returns {Array<object>}
- */
 function toAnthropicMessages(messages) {
   const result = [];
 
@@ -258,14 +212,7 @@ function toAnthropicMessages(messages) {
 // Gemini (Google AI Studio)
 // ---------------------------------------------------------------------------
 
-/**
- * @param {string} apiKey
- * @param {Array<object>} messages
- * @param {Array<object>} tools
- * @returns {Promise<{text: string, reasoning: string, toolCalls: Array<object>}>}
- */
 async function chatWithGemini(apiKey, messages, tools) {
-  // Like Anthropic, Gemini takes the system prompt outside the conversation.
   const systemPrompt = messages
     .filter((message) => message.role === "system")
     .map((message) => message.content)
@@ -322,22 +269,15 @@ async function chatWithGemini(apiKey, messages, tools) {
         name: part.functionCall.name,
         arguments: part.functionCall.args ?? {},
       })),
-    // Gemini 3 attaches a `thoughtSignature` to each functionCall part and
-    // rejects the next request if it does not come back. Keeping the original
-    // parts and replaying them verbatim satisfies that without this code
-    // having to know the field exists.
+    // Gemini 3 attaches a thoughtSignature to each functionCall part and
+    // rejects the next request if it does not come back. Replaying the original
+    // parts verbatim satisfies that without this code knowing the field exists.
     raw: parts,
   };
 }
 
-/**
- * Converts neutral messages into Gemini `contents`. Gemini names the assistant
- * role "model", and tool results travel as `functionResponse` parts inside a
- * user turn.
- *
- * @param {Array<object>} messages
- * @returns {Array<object>}
- */
+// Gemini names the assistant role "model", and tool results travel as
+// functionResponse parts inside a user turn.
 function toGeminiContents(messages) {
   const contents = [];
 
@@ -349,7 +289,6 @@ function toGeminiContents(messages) {
           response: { result: message.content },
         },
       };
-      // Results that follow one another belong to the same turn.
       const previous = contents[contents.length - 1];
       if (previous?.role === "user" && previous.parts[0]?.functionResponse) {
         previous.parts.push(part);
@@ -360,8 +299,6 @@ function toGeminiContents(messages) {
     }
 
     if (message.role === "assistant") {
-      // A turn that came from Gemini is replayed exactly as it arrived, so the
-      // thought signatures attached to its function calls survive.
       const parts = message.raw ?? buildGeminiAssistantParts(message);
 
       // An assistant turn with neither text nor calls would be rejected.
@@ -375,13 +312,8 @@ function toGeminiContents(messages) {
   return contents;
 }
 
-/**
- * Rebuilds an assistant turn from the neutral shape, for messages that did not
- * come from Gemini (a history restored from elsewhere, or another provider).
- *
- * @param {object} message
- * @returns {Array<object>}
- */
+// For turns that did not come from Gemini: a history restored from elsewhere,
+// or one produced by another provider.
 function buildGeminiAssistantParts(message) {
   const parts = [];
 
@@ -394,7 +326,6 @@ function buildGeminiAssistantParts(message) {
   return parts;
 }
 
-/** JSON Schema keywords Gemini accepts; everything else is dropped. */
 const GEMINI_SCHEMA_KEYS = [
   "type",
   "description",
@@ -405,17 +336,10 @@ const GEMINI_SCHEMA_KEYS = [
   "nullable",
 ];
 
-/**
- * Reduces a JSON Schema to the subset Gemini accepts.
- *
- * The official MCP servers ship schemas with `$schema`, `default`, `minItems`
- * and similar keywords. Gemini validates function declarations strictly and
- * rejects the whole request when it meets one, so the schema is rebuilt from
- * the keywords it understands.
- *
- * @param {object} schema
- * @returns {object|null}
- */
+// The official MCP servers ship schemas with $schema, default, minItems and
+// similar keywords. Gemini validates function declarations strictly and rejects
+// the whole request when it meets one, so the schema is rebuilt from the
+// keywords it understands.
 function toGeminiSchema(schema) {
   if (schema === null || typeof schema !== "object") return null;
 
@@ -449,28 +373,13 @@ function toGeminiSchema(schema) {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-/** How many times a retryable request is retried before giving up. */
 const MAX_RETRIES = 3;
 
-/**
- * Statuses worth retrying: 429 is a rate limit, 503 is a provider that is
- * momentarily overloaded. Both clear on their own after a short wait.
- */
+// 429 is a rate limit and 503 a momentarily overloaded provider. Both clear on
+// their own after a short wait, and free tiers metered per minute hit them
+// easily once a large tool catalogue travels with every request.
 const RETRYABLE_STATUSES = [429, 503];
 
-/**
- * POSTs a JSON body and returns the decoded response, turning HTTP errors into
- * exceptions that carry the message reported by the provider.
- *
- * Free tiers are metered per minute, and a conversation that carries a large
- * tool catalogue hits that ceiling easily, so HTTP 429 is retried after the
- * delay the provider asks for instead of failing the user's message.
- *
- * @param {string} url
- * @param {Record<string, string>} headers
- * @param {object} body
- * @returns {Promise<object>}
- */
 async function postJson(url, headers, body) {
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetch(url, {
@@ -498,15 +407,8 @@ async function postJson(url, headers, body) {
   }
 }
 
-/**
- * Works out how long to wait before retrying, preferring the delay the
- * provider asks for and otherwise backing off exponentially.
- *
- * @param {Response} response
- * @param {string} text
- * @param {number} attempt Zero-based retry number.
- * @returns {number} Milliseconds to wait.
- */
+// Prefers the delay the provider asks for, and otherwise backs off
+// exponentially.
 function retryDelayMs(response, text, attempt) {
   const header = Number(response.headers.get("retry-after"));
   if (Number.isFinite(header) && header > 0) return header * 1000;
@@ -517,27 +419,17 @@ function retryDelayMs(response, text, attempt) {
   return 2000 * 2 ** attempt;
 }
 
-/**
- * @param {number} ms
- * @returns {Promise<void>}
- */
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Parses a JSON arguments string, tolerating the empty or blank case.
- *
- * @param {string|undefined} raw
- * @returns {object}
- */
 function parseArguments(raw) {
   if (!raw || raw.trim() === "") return {};
   try {
     return JSON.parse(raw);
   } catch {
-    // A malformed argument string is a model error, not a crash: hand it to
-    // the tool layer, which reports it back to the model.
+    // A malformed argument string is a model error, not a crash: hand it to the
+    // tool layer, which reports it back to the model.
     return { __malformed: raw };
   }
 }

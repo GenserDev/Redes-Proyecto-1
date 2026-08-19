@@ -1,8 +1,7 @@
-/**
- * Drives one complete MCP session against an HTTP server, for packet capture.
- * Uses the project's own client, so what Wireshark records is the real host
- * talking to the real server, not a synthetic request.
- */
+// Drives one complete MCP session against an HTTP server, for packet capture.
+// Uses the project's own client, so what Wireshark records is the real host
+// talking to the real server.
+
 import { McpManager } from "../src/mcp/manager.js";
 
 const url = process.argv[2];

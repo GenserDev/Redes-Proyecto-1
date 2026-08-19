@@ -1,16 +1,8 @@
 #!/usr/bin/env node
-/**
- * Logistics MCP server, stdio transport (project requirement #5).
- *
- * The transport shell: it reads newline-delimited JSON from stdin and writes
- * newline-delimited JSON to stdout, handing each parsed request to the shared
- * router in protocol.js. stdout carries protocol messages only, so anything
- * diagnostic goes to stderr.
- *
- * Run it directly to try it out:
- *
- *   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node stdio-server.js
- */
+// Logistics MCP server over stdio (requirement #5). Reads newline-delimited
+// JSON from stdin and writes it to stdout; stderr carries diagnostics only.
+//
+//   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | node stdio-server.js
 
 import readline from "node:readline";
 import {
@@ -23,20 +15,10 @@ import {
 import { handleRequest } from "./protocol.js";
 import { SERVER_INFO } from "./tools.js";
 
-/**
- * Writes one message to stdout, terminated by the newline that frames it.
- *
- * @param {object} message
- */
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-/**
- * Handles one raw line from stdin.
- *
- * @param {string} line
- */
 function handleLine(line) {
   if (line.trim() === "") return;
 

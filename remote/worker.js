@@ -1,19 +1,8 @@
-/**
- * Logistics MCP server, HTTP transport (project requirement #6).
- *
- * The same server as servers/logistics/stdio-server.js, reached over the
- * network instead of a pipe. It runs on Cloudflare Workers, whose entry point
- * is a `fetch` handler, and it routes messages through the very same
- * protocol.js and tools.js as the local server -- not a copy of them.
- *
- * Endpoints:
- *
- *   POST /mcp     one JSON-RPC message per request; the response is the reply
- *   GET  /health  liveness probe, for checking a deployment from a browser
- *
- * A request that carries a notification gets HTTP 202 with an empty body,
- * since the protocol says notifications have no reply.
- */
+// Logistics MCP server over HTTP (requirement #6), running on Cloudflare
+// Workers. Same protocol.js and tools.js as the local server, not a copy.
+//
+//   POST /mcp     one JSON-RPC message per request
+//   GET  /health  liveness probe
 
 import {
   ErrorCode,
@@ -25,10 +14,6 @@ import {
 import { PROTOCOL_VERSION, handleRequest } from "../servers/logistics/protocol.js";
 import { SERVER_INFO } from "../servers/logistics/tools.js";
 
-/**
- * Headers allowing a browser-based client to call this server. They are
- * harmless for the chatbot, which is not subject to the same-origin policy.
- */
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -36,10 +21,6 @@ const CORS_HEADERS = {
 };
 
 export default {
-  /**
-   * @param {Request} request
-   * @returns {Promise<Response>}
-   */
   async fetch(request) {
     const url = new URL(request.url);
 
@@ -68,12 +49,6 @@ export default {
   },
 };
 
-/**
- * Handles one JSON-RPC message delivered over HTTP.
- *
- * @param {Request} request
- * @returns {Promise<Response>}
- */
 async function handleMcp(request) {
   const body = await request.text();
 
@@ -112,11 +87,6 @@ async function handleMcp(request) {
   }
 }
 
-/**
- * @param {object} payload
- * @param {number} status
- * @returns {Response}
- */
 function json(payload, status) {
   return new Response(JSON.stringify(payload), {
     status,

@@ -1,50 +1,28 @@
-/**
- * Configuration loader.
- *
- * Reads the .env file once at startup and exposes a plain object with the
- * settings the rest of the application needs. Keeping every environment
- * lookup here means no other module has to touch `process.env`.
- */
+// Loads the .env file and mcp-servers.json once at startup.
 
 import "dotenv/config";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-/** Absolute path to the repository root (this file lives in <root>/src). */
 export const ROOT_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
 
-/**
- * Reads an environment variable, falling back to a default when it is unset
- * or blank. Blank is treated as unset because a key left as `FOO=` in .env is
- * almost always a mistake rather than an intentional empty string.
- *
- * @param {string} name
- * @param {string} [fallback]
- * @returns {string}
- */
+// A key left as `FOO=` in .env is almost always a mistake, so a blank value is
+// treated as unset rather than as an intentional empty string.
 function env(name, fallback = "") {
   const value = process.env[name];
   return value === undefined || value.trim() === "" ? fallback : value.trim();
 }
 
-/**
- * Reads a boolean environment variable. Accepts "true"/"1" as true.
- *
- * @param {string} name
- * @param {boolean} fallback
- * @returns {boolean}
- */
 function envBool(name, fallback) {
   const value = env(name);
   if (value === "") return fallback;
   return value.toLowerCase() === "true" || value === "1";
 }
 
-/** LLM backends this project can talk to. */
 const PROVIDERS = ["groq", "anthropic", "gemini"];
 
 const provider = env("LLM_PROVIDER", "gemini").toLowerCase();
@@ -56,7 +34,6 @@ if (!PROVIDERS.includes(provider)) {
 }
 
 export const config = {
-  /** Which LLM backend to talk to: "groq" or "anthropic". */
   provider,
 
   groq: {
@@ -77,25 +54,11 @@ export const config = {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
   },
 
-  /** Conversation messages retained before the oldest ones are dropped. */
   maxHistoryMessages: Number(env("MAX_HISTORY_MESSAGES", "40")),
-
-  /** Whether MCP traffic is echoed to the terminal (toggled with /log). */
   showMcpLog: envBool("SHOW_MCP_LOG", false),
-
-  /** Directory where per-session JSON Lines logs are written. */
   logDir: path.join(ROOT_DIR, "logs"),
 };
 
-/**
- * Loads the MCP server definitions from mcp-servers.json.
- *
- * Paths inside the file are written with a `{{ROOT}}` placeholder so the
- * configuration stays portable across machines; it is expanded here into the
- * absolute path of this checkout.
- *
- * @returns {Array<object>} Server entries, or an empty list when the file is absent.
- */
 export function loadServerConfigs() {
   const file = path.join(ROOT_DIR, "mcp-servers.json");
 
@@ -112,22 +75,12 @@ export function loadServerConfigs() {
   }));
 }
 
-/**
- * Replaces the `{{ROOT}}` placeholder with the repository path.
- *
- * @param {string} value
- * @returns {string}
- */
+// Paths in mcp-servers.json use a {{ROOT}} placeholder so the file stays
+// portable across machines.
 function expandRoot(value) {
   return value.replaceAll("{{ROOT}}", ROOT_DIR);
 }
 
-/**
- * Returns the API key for the active provider, throwing a message that tells
- * the user exactly which variable to fill in when it is missing.
- *
- * @returns {string}
- */
 export function requireApiKey() {
   const key = config[config.provider].apiKey;
   if (!key) {

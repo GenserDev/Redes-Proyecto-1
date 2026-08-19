@@ -1,17 +1,10 @@
-/**
- * Logistics domain: the tools exposed by our own MCP server.
- *
- * The industry scenario is a Guatemalan parcel carrier whose customer service
- * chatbot can quote a shipment, create it, track it, and list what a customer
- * has in transit.
- *
- * This module knows nothing about MCP or about transports. It only declares
- * tools and computes answers, which is what lets the same code back both the
- * local stdio server (servers/logistics/stdio-server.js) and the remote HTTP
- * server (remote/worker.js) without a single change.
- */
+// Logistics domain: the tools our own MCP server exposes. The industry case
+// is a Guatemalan parcel carrier whose support chatbot can quote, create,
+// track and list shipments.
+//
+// This module knows nothing about MCP or transports, which is what lets the
+// same code back both the local stdio server and the remote HTTP worker.
 
-/** Metadata reported during the MCP handshake. */
 export const SERVER_INFO = {
   name: "logistics-mcp",
   version: "1.0.0",
@@ -21,10 +14,6 @@ export const SERVER_INFO = {
 // Reference data
 // ---------------------------------------------------------------------------
 
-/**
- * Service coverage. Every city belongs to a zone, and the zone drives both
- * price and transit time.
- */
 const CITIES = {
   "guatemala city": { zone: "metro", branch: "GT-CENTRAL" },
   "mixco": { zone: "metro", branch: "GT-CENTRAL" },
@@ -37,27 +26,20 @@ const CITIES = {
   "puerto barrios": { zone: "remote", branch: "IZA-01" },
 };
 
-/** Base fee and per-kilogram rate in quetzales, by zone. */
 const ZONE_RATES = {
   metro: { base: 25, perKg: 4.5, baseDays: 1 },
   central: { base: 40, perKg: 6.0, baseDays: 2 },
   remote: { base: 65, perKg: 9.5, baseDays: 4 },
 };
 
-/** Price multiplier and days saved for each service level. */
 const SERVICE_LEVELS = {
   standard: { multiplier: 1.0, daysSaved: 0 },
   express: { multiplier: 1.6, daysSaved: 1 },
   overnight: { multiplier: 2.4, daysSaved: 2 },
 };
 
-/** Statuses a shipment moves through. */
 const STATUSES = ["created", "picked_up", "in_transit", "out_for_delivery", "delivered", "exception"];
 
-/**
- * Seed shipments. The data is deterministic so a demo produces the same
- * answers every time it is run.
- */
 const shipments = new Map(
   [
     {
@@ -131,17 +113,12 @@ const shipments = new Map(
   ].map((shipment) => [shipment.trackingNumber, shipment]),
 );
 
-/** Counter used to hand out new tracking numbers. */
 let nextTrackingSuffix = 4600;
 
 // ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
 
-/**
- * The tool catalogue. Each entry carries the JSON Schema the MCP client
- * advertises to the model, plus the handler that computes the answer.
- */
 const TOOLS = [
   {
     name: "quote_shipment",
@@ -217,9 +194,6 @@ const TOOLS = [
   },
 ];
 
-/**
- * @returns {Array<object>} Tool descriptors in the shape `tools/list` returns.
- */
 export function listTools() {
   return TOOLS.map(({ name, description, inputSchema }) => ({
     name,
@@ -228,18 +202,10 @@ export function listTools() {
   }));
 }
 
-/**
- * Executes a tool and wraps the outcome in an MCP `tools/call` result.
- *
- * Domain problems -- an unknown city, a tracking number that does not exist --
- * are returned as results with `isError: true` rather than as JSON-RPC errors.
- * The specification reserves protocol errors for the protocol itself; a failed
- * lookup is information the model should read and explain.
- *
- * @param {string} name
- * @param {object} args
- * @returns {{content: Array<object>, isError?: boolean}}
- */
+// Domain problems -- an unknown city, a tracking number that does not exist --
+// come back as results with isError rather than as JSON-RPC errors. The
+// specification reserves protocol errors for the protocol itself; a failed
+// lookup is information the model should read and explain.
 export function callTool(name, args) {
   const tool = TOOLS.find((entry) => entry.name === name);
 
@@ -258,10 +224,6 @@ export function callTool(name, args) {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/**
- * @param {object} args
- * @returns {object}
- */
 function quoteShipment(args) {
   const origin = resolveCity(args.origin, "origin");
   const destination = resolveCity(args.destination, "destination");
@@ -283,10 +245,6 @@ function quoteShipment(args) {
   );
 }
 
-/**
- * @param {object} args
- * @returns {object}
- */
 function createShipment(args) {
   const customer = requireText(args.customer, "customer");
   const origin = resolveCity(args.origin, "origin");
@@ -332,10 +290,6 @@ function createShipment(args) {
   );
 }
 
-/**
- * @param {object} args
- * @returns {object}
- */
 function trackShipment(args) {
   const trackingNumber = requireText(args.tracking_number, "tracking_number").toUpperCase();
   const shipment = shipments.get(trackingNumber);
@@ -366,10 +320,6 @@ function trackShipment(args) {
   );
 }
 
-/**
- * @param {object} args
- * @returns {object}
- */
 function listShipments(args) {
   const customer = requireText(args.customer, "customer").toLowerCase();
 
@@ -403,16 +353,8 @@ function listShipments(args) {
 // Pricing
 // ---------------------------------------------------------------------------
 
-/**
- * Prices a shipment. The zone used is the more expensive of the two endpoints,
- * which is how the carrier bills a route that leaves the metropolitan area.
- *
- * @param {{name: string, zone: string}} origin
- * @param {{name: string, zone: string}} destination
- * @param {number} weightKg
- * @param {string} serviceLevel
- * @returns {{zone: string, priceGtq: number, transitDays: number, estimatedDelivery: string}}
- */
+// The zone used is the more expensive of the two endpoints, which is how the
+// carrier bills a route that leaves the metropolitan area.
 function priceFor(origin, destination, weightKg, serviceLevel) {
   const order = ["metro", "central", "remote"];
   const zone =
@@ -434,13 +376,7 @@ function priceFor(origin, destination, weightKg, serviceLevel) {
   };
 }
 
-/**
- * Adds business days to a date, skipping Saturdays and Sundays.
- *
- * @param {Date} start
- * @param {number} days
- * @returns {string} Date in YYYY-MM-DD form.
- */
+// Skips Saturdays and Sundays.
 function addBusinessDays(start, days) {
   const date = new Date(start.getTime());
   let remaining = days;
@@ -454,10 +390,6 @@ function addBusinessDays(start, days) {
   return date.toISOString().slice(0, 10);
 }
 
-/**
- * @param {number} value
- * @returns {number}
- */
 function round2(value) {
   return Math.round(value * 100) / 100;
 }
@@ -466,14 +398,6 @@ function round2(value) {
 // Argument validation
 // ---------------------------------------------------------------------------
 
-/**
- * Resolves a city name to its zone and branch, accepting any capitalization
- * and tolerating the accents a user is likely to type.
- *
- * @param {string} value
- * @param {string} field
- * @returns {{name: string, zone: string, branch: string}}
- */
 function resolveCity(value, field) {
   const text = requireText(value, field);
   const key = normalize(text);
@@ -489,10 +413,6 @@ function resolveCity(value, field) {
   return { name: titleCase(key), zone: entry.zone, branch: entry.branch };
 }
 
-/**
- * @param {number} value
- * @returns {number}
- */
 function resolveWeight(value) {
   const weight = Number(value);
 
@@ -507,10 +427,6 @@ function resolveWeight(value) {
   return round2(weight);
 }
 
-/**
- * @param {string|undefined} value
- * @returns {string}
- */
 function resolveServiceLevel(value) {
   if (value === undefined || value === "") return "standard";
 
@@ -525,11 +441,6 @@ function resolveServiceLevel(value) {
   return level;
 }
 
-/**
- * @param {*} value
- * @param {string} field
- * @returns {string}
- */
 function requireText(value, field) {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`${field} is required and must be a non-empty string.`);
@@ -537,12 +448,7 @@ function requireText(value, field) {
   return value.trim();
 }
 
-/**
- * Lowercases and strips accents so "Cobán" and "coban" resolve to one key.
- *
- * @param {string} value
- * @returns {string}
- */
+// Lowercases and strips accents so "Cobán" and "coban" resolve to one key.
 function normalize(value) {
   return value
     .toLowerCase()
@@ -551,10 +457,6 @@ function normalize(value) {
     .trim();
 }
 
-/**
- * @param {string} value
- * @returns {string}
- */
 function titleCase(value) {
   return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -563,18 +465,10 @@ function titleCase(value) {
 // MCP result helpers
 // ---------------------------------------------------------------------------
 
-/**
- * @param {string} text
- * @returns {{content: Array<object>}}
- */
 function toolText(text) {
   return { content: [{ type: "text", text }] };
 }
 
-/**
- * @param {string} message
- * @returns {{content: Array<object>, isError: true}}
- */
 function toolError(message) {
   return { content: [{ type: "text", text: message }], isError: true };
 }

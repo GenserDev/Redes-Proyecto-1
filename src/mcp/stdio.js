@@ -1,27 +1,10 @@
-/**
- * MCP stdio transport.
- *
- * The server runs as a child process. Messages travel as newline-delimited
- * JSON: one complete JSON-RPC message per line on stdin and stdout, with the
- * child's stderr reserved for diagnostics. There is no Content-Length header
- * here -- that framing belongs to the Language Server Protocol, not to MCP.
- *
- * Because a stream delivers bytes rather than lines, incoming data is buffered
- * and only split once a newline actually arrives; a single chunk may contain
- * several messages, or half of one.
- */
+// MCP stdio transport: the server runs as a child process and messages travel
+// as newline-delimited JSON. There is no Content-Length header here -- that
+// framing belongs to the Language Server Protocol, not to MCP.
 
 import { spawn } from "node:child_process";
 
 export class StdioTransport {
-  /**
-   * @param {object} options
-   * @param {string} options.name      Logical name, used in the traffic log.
-   * @param {string} options.command   Executable to run.
-   * @param {string[]} [options.args]  Arguments for the executable.
-   * @param {string} [options.cwd]     Working directory for the child process.
-   * @param {Record<string,string>} [options.env] Extra environment variables.
-   */
   constructor({ name, command, args = [], cwd, env = {} }) {
     this.name = name;
     this.kind = "stdio";
@@ -30,29 +13,18 @@ export class StdioTransport {
     this.cwd = cwd;
     this.env = env;
 
-    /** @type {import("node:child_process").ChildProcess|null} */
     this.child = null;
-
-    /** Bytes received but not yet terminated by a newline. */
     this.buffer = "";
 
-    /** @type {(line: string) => void} Receives one raw message per line. */
     this.onMessage = () => {};
-
-    /** @type {(line: string) => void} Receives the child's stderr output. */
     this.onStderr = () => {};
-
-    /** @type {(reason: string) => void} Called when the child process goes away. */
     this.onClose = () => {};
   }
 
-  /**
-   * Launches the child process and starts reading messages from its stdout.
-   */
   start() {
-    // The child is launched without a shell: every server in mcp-servers.json
-    // is started through a real executable (node, uvx, python), which keeps
-    // arguments free of quoting rules and avoids shell injection entirely.
+    // Launched without a shell: every server in mcp-servers.json is started
+    // through a real executable (node, uvx, python), which keeps arguments free
+    // of quoting rules and avoids shell injection entirely.
     this.child = spawn(this.command, this.args, {
       cwd: this.cwd,
       env: { ...process.env, ...this.env },
@@ -81,11 +53,8 @@ export class StdioTransport {
     });
   }
 
-  /**
-   * Accumulates incoming bytes and emits every complete line as a message.
-   *
-   * @param {string} chunk
-   */
+  // A stream delivers bytes, not lines: a chunk may hold several messages or
+  // half of one, so data is buffered until a newline actually arrives.
   consume(chunk) {
     this.buffer += chunk;
 
@@ -94,7 +63,6 @@ export class StdioTransport {
       const line = this.buffer.slice(0, newlineIndex).trim();
       this.buffer = this.buffer.slice(newlineIndex + 1);
 
-      // Servers occasionally print blank lines; they are not messages.
       if (line !== "") {
         this.onMessage(line);
       }
@@ -103,11 +71,6 @@ export class StdioTransport {
     }
   }
 
-  /**
-   * Writes one message, terminated by the newline that delimits it.
-   *
-   * @param {object} message
-   */
   send(message) {
     if (this.child === null || this.child.stdin.destroyed) {
       throw new Error(`MCP server "${this.name}" is not running`);
@@ -115,7 +78,6 @@ export class StdioTransport {
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
-  /** Terminates the child process. */
   close() {
     if (this.child === null) return;
     this.child.stdin.end();
@@ -123,7 +85,6 @@ export class StdioTransport {
     this.child = null;
   }
 
-  /** @returns {string} How this connection is described in logs and the UI. */
   describe() {
     return `${this.command} ${this.args.join(" ")}`.trim();
   }

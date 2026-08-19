@@ -1,15 +1,7 @@
 #!/usr/bin/env node
-/**
- * Terminal user interface and entry point.
- *
- * A read-eval-print loop built on Node's own `readline`: it starts every MCP
- * server declared in mcp-servers.json, reads a line, routes it either to a
- * slash command or to the agent, and prints the reply.
- *
- * Colour choices follow the HCI guidance from the course: one hue per role so
- * the eye can separate speakers at a glance, MCP traffic dimmed so it never
- * competes with the conversation, and red reserved exclusively for errors.
- */
+// Terminal UI and entry point. One hue per role so the eye separates
+// speakers at a glance, MCP traffic dimmed so it never competes with the
+// conversation, and red reserved exclusively for errors.
 
 import readline from "node:readline";
 import chalk from "chalk";
@@ -19,7 +11,6 @@ import { Agent } from "./agent.js";
 import { McpManager } from "./mcp/manager.js";
 import { printLog, setEcho, entryCount, currentLogFile } from "./logger.js";
 
-/** Role colours, kept in one place so the palette stays consistent. */
 const ui = {
   user: chalk.cyan.bold,
   assistant: chalk.white,
@@ -30,9 +21,6 @@ const ui = {
   ok: chalk.green,
 };
 
-/**
- * Prints the startup banner with the active model and a hint about /help.
- */
 function printBanner() {
   const line = "-".repeat(62);
   console.log(ui.label(line));
@@ -42,9 +30,6 @@ function printBanner() {
   console.log(ui.label(line));
 }
 
-/**
- * Prints the list of slash commands.
- */
 function printHelp() {
   const rows = [
     ["/help", "show this help"],
@@ -60,11 +45,6 @@ function printHelp() {
   }
 }
 
-/**
- * Prints one row per MCP server with its connection state.
- *
- * @param {McpManager} manager
- */
 function printServers(manager) {
   const rows = manager.status();
 
@@ -85,11 +65,6 @@ function printServers(manager) {
   }
 }
 
-/**
- * Prints the tool catalogue, grouped by the server that provides it.
- *
- * @param {McpManager} manager
- */
 function printTools(manager) {
   const tools = manager.catalogue;
 
@@ -110,14 +85,6 @@ function printTools(manager) {
   console.log(ui.meta(`  ${tools.length} tools available`));
 }
 
-/**
- * Handles a slash command.
- *
- * @param {string} line The full input line, starting with "/".
- * @param {Agent} agent
- * @param {McpManager} manager
- * @returns {boolean} True when the loop should stop.
- */
 function runCommand(line, agent, manager) {
   const [command, ...args] = line.trim().split(/\s+/);
 
@@ -161,11 +128,6 @@ function runCommand(line, agent, manager) {
   }
 }
 
-/**
- * Shows an animated "thinking" indicator while a request is in flight.
- *
- * @returns {() => void} Call to stop the indicator and clear the line.
- */
 function startThinking() {
   const frames = ["|", "/", "-", "\\"];
   let index = 0;
@@ -182,12 +144,6 @@ function startThinking() {
   };
 }
 
-/**
- * Reports a tool call as it happens, so a long chain of calls does not look
- * like the program has frozen.
- *
- * @param {object} event
- */
 function reportToolEvent(event) {
   if (event.phase === "start") {
     const args = JSON.stringify(event.args ?? {});
@@ -202,9 +158,6 @@ function reportToolEvent(event) {
   console.log(`       ${status} ${ui.meta(preview)}`);
 }
 
-/**
- * Starts the MCP servers, runs the REPL, and shuts everything down on exit.
- */
 async function main() {
   printBanner();
 
