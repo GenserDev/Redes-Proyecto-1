@@ -88,7 +88,7 @@ export class McpManager {
   listTools() {
     return this.catalogue.map(({ name, description, inputSchema }) => ({
       name,
-      description,
+      description: shortenDescription(description),
       inputSchema,
     }));
   }
@@ -196,6 +196,33 @@ function createTransport(serverConfig) {
 function namespaceToolName(serverName, toolName) {
   const raw = `${serverName}${NAMESPACE_SEPARATOR}${toolName}`;
   return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, MAX_TOOL_NAME_LENGTH);
+}
+
+/** Characters of tool description sent to the model. */
+const MAX_DESCRIPTION_LENGTH = 180;
+
+/**
+ * Shortens a tool description before it is sent to the model.
+ *
+ * The whole catalogue travels with every request, and the official servers
+ * ship descriptions several sentences long: keeping them in full costs around
+ * 2300 tokens per call, which exhausts a free-tier per-minute quota after a
+ * handful of turns. The first sentence carries the information the model
+ * actually needs to pick a tool.
+ *
+ * @param {string} description
+ * @returns {string}
+ */
+function shortenDescription(description) {
+  const firstParagraph = description.split("\n")[0].trim();
+
+  if (firstParagraph.length <= MAX_DESCRIPTION_LENGTH) return firstParagraph;
+
+  // Prefer cutting at a sentence boundary so the text stays readable.
+  const sentenceEnd = firstParagraph.lastIndexOf(". ", MAX_DESCRIPTION_LENGTH);
+  return sentenceEnd > 60
+    ? firstParagraph.slice(0, sentenceEnd + 1)
+    : `${firstParagraph.slice(0, MAX_DESCRIPTION_LENGTH)}...`;
 }
 
 /**
