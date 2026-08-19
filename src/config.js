@@ -58,7 +58,7 @@ export const config = {
 
   groq: {
     apiKey: env("GROQ_API_KEY"),
-    model: env("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    model: env("GROQ_MODEL", "openai/gpt-oss-120b"),
     baseUrl: "https://api.groq.com/openai/v1",
   },
 
